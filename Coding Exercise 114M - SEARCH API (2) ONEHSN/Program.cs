@@ -1,43 +1,90 @@
-﻿var builder = WebApplication.CreateBuilder(args);
+﻿// Model representing a Rectangle
+using Microsoft.EntityFrameworkCore;
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+public class Rectangle
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    public int Id { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
 }
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
+// DbContext for interacting with the database
+public class RectangleDbContext : DbContext
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    public DbSet<Rectangle> Rectangles { get; set; }
 
-app.MapGet("/weatherforecast", () =>
+    public RectangleDbContext(DbContextOptions<RectangleDbContext> options) : base(options)
+    {
+    }
+}
+
+// Seed some data into the database
+public static class DataSeeder
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateTime.Now.AddDays(index),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    public static void SeedData(RectangleDbContext dbContext)
+    {
+        if (!dbContext.Rectangles.Any())
+        {
+            List<Rectangle> rectangles = new List<Rectangle>
+            {
+                new Rectangle { X = 10, Y = 10, Width = 50, Height = 50 },
+                new Rectangle { X = 100, Y = 100, Width = 30, Height = 40 },
+                // Add more rectangles as needed
+            };
 
-app.Run();
+            dbContext.Rectangles.AddRange(rectangles);
+            dbContext.SaveChanges();
+        }
+    }
+}
 
-record WeatherForecast(DateTime Date, int TemperatureC, string? Summary)
+// API startup configuration
+public class Startup
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    public void ConfigureServices(IServiceCollection services)
+    {
+        services.AddDbContext<RectangleDbContext>(options =>
+            options.UseSqlServer("your_connection_string_here"));
+
+        services.AddControllers();
+    }
+
+    public void Configure(IApplicationBuilder app)
+    {
+        app.UseRouting();
+
+        app.UseEndpoints(endpoints =>
+        {
+            endpoints.MapGet("/", async context =>
+            {
+                await context.Response.WriteAsync("Rectangle API");
+            });
+
+            endpoints.MapPost("/search", async context =>
+            {
+                var dbContext = context.RequestServices.GetRequiredService<RectangleDbContext>();
+                var coordinates = await context.Request.ReadFromJsonAsync<int[]>();
+
+                if (coordinates == null || coordinates.Length == 0)
+                {
+                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    await context.Response.WriteAsync("Invalid input data.");
+                    return;
+                }
+
+                var rectangles = dbContext.Rectangles
+                    .Where(rectangle =>
+                        coordinates.Any(coordinate =>
+                            coordinate >= rectangle.X &&
+                            coordinate <= rectangle.X + rectangle.Width &&
+                            coordinate >= rectangle.Y &&
+                            coordinate <= rectangle.Y + rectangle.Height))
+                    .ToList();
+
+                await context.Response.WriteAsJsonAsync(rectangles);
+            });
+        });
+    }
 }
